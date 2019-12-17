@@ -14,7 +14,7 @@ class VKParse:
         self.session = requests.Session()
 
     def get_csrf(self):
-        auth_html = self.session.get('http://vk.com')
+        auth_html = self.session.get(self.MAIN_URL)
         auth_parse = BeautifulSoup(auth_html.content, 'html.parser')
         action_url = auth_parse.select('form')[0].attrs['action'].split('&')
         return {
@@ -46,10 +46,9 @@ class VKParse:
         return self.session.post(self.LOGIN_URL, data=payload).status_code == 200
 
     def refresh_authorization(self):
-        last_login = self.AUTH_INFO[-1]
-        if last_login and last_login['time'] <= datetime.now() - timedelta(hours=1):
+        if self.AUTH_INFO and self.AUTH_INFO['time'] <= datetime.now() - timedelta(hours=1):
             self.session = requests.Session()
-            self.authorization(last_login['login'], last_login['password'])
+            self.authorization(self.AUTH_INFO['login'], self.AUTH_INFO['password'])
 
     def get_audio(self):
         audio_page = self.session.get(self.AUDIO_URL)
