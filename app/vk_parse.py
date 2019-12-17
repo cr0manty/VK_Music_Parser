@@ -1,17 +1,26 @@
 import requests
+import json
+
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+
+from .models import Authorization
+from .database import Database
 
 
 class VKParse:
     MAIN_URL = 'https://vk.com'
     LOGIN_URL = 'https://login.vk.com/?act=login'
     AUDIO_URL = 'https://vk.com/audio'
-    AUTH_INFO = {}
-    content = {}
 
     def __init__(self):
+        self.db = Database()
         self.session = requests.Session()
+
+    def check_location(self):
+        ip_json = requests.get('http://www.trackip.net/ip?json')
+        location = json.loads(ip_json.text)
+        return location
 
     def get_csrf(self):
         auth_html = self.session.get(self.MAIN_URL)
@@ -24,11 +33,6 @@ class VKParse:
 
     def create_payload(self, login, password):
         csrf = self.get_csrf()
-        self.AUTH_INFO = {
-            'login': login,
-            'password': password,
-            'time': datetime.now()
-        }
         payload = {
             'act': 'login',
             'role': 'al_frame',
@@ -36,19 +40,35 @@ class VKParse:
             'email': login,
             'pass': password,
         }
-
-        self.AUTH_INFO.update(csrf)
+        user = Authorization(
+            login=login,
+            password=password,
+            ip_h=csrf['ip_h'],
+            lg_h=csrf['lg_h']
+        )
         payload.update(csrf)
-        return payload
+        return payload, user
+
+    def use_proxy(self):
+        return True
 
     def authorization(self, login, password):
-        payload = self.create_payload(login, password)
+        user_location = self.check_location()
+        used_proxy = self.use_proxy() if user_location['Country'] == 'UA' else 0
+
+        payload, user = self.create_payload(login, password)
+        user.use_proxy = used_proxy
+        user.ip = user_location['IP']
+        user.user_location = user_location['Country']
+        user.save()
+
         return self.session.post(self.LOGIN_URL, data=payload).status_code == 200
 
-    def refresh_authorization(self):
-        if self.AUTH_INFO and self.AUTH_INFO['time'] <= datetime.now() - timedelta(hours=1):
+    def refresh_authorization(self, login):
+        last_auth = Authorization.objects(login=login).order_by('-auth_time')
+        if last_auth and last_auth.auth_time <= datetime.now() - timedelta(hours=1):
             self.session = requests.Session()
-            self.authorization(self.AUTH_INFO['login'], self.AUTH_INFO['password'])
+            self.authorization(last_auth.login, last_auth.password)
 
     def get_audio(self):
         audio_page = self.session.get(self.AUDIO_URL)
